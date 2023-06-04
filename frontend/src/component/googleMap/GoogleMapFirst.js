@@ -4,8 +4,11 @@ import {
   MarkerF,
   useJsApiLoader,
   InfoBoxF,
+  DirectionsRenderer,
+  DirectionsService,
 } from "@react-google-maps/api";
 import { Rating } from "react-simple-star-rating";
+import { Modal } from "react-bootstrap";
 
 const containerStyle = {
   width: "100%",
@@ -23,7 +26,9 @@ const addValueInterface = {
   name: "",
   notice: "",
   photos: [],
+  subPlace: [],
   stayTime: "",
+  sort: 0,
 };
 
 const addLoadInterface = {
@@ -33,6 +38,7 @@ const addLoadInterface = {
   toPlaceId: "",
   type: "",
   time: "",
+  sort: 0,
 };
 
 const defaultValidation = {
@@ -44,7 +50,7 @@ const defaultValidation = {
 export const GoogleMapFirst = () => {
   const { isLoaded } = useJsApiLoader({
     id: "google-map-script",
-    libraries: ["places"],
+    libraries: ["places", "geometry"],
     googleMapsApiKey: process.env.REACT_APP_GOOGLE_API,
   });
 
@@ -62,6 +68,20 @@ export const GoogleMapFirst = () => {
   const [plannerValue, setPlannerValue] = useState([]);
   const [dayTapIndex, setDayTapIndex] = useState(0);
   const [clickIndex, setClickIndex] = useState(-1);
+  const [navigateInfo, setNavigateInfo] = useState({});
+  const [directionsDisplay, setDirectionsDisplay] = useState();
+  const [navigateValue, setNavigateValue] = useState({
+    origin: {},
+    destination: {},
+    optimizeWaypoints: false,
+    travelMode: "",
+  });
+
+  useEffect(() => {
+    if (navigateValue.travelMode) {
+      navigationGoogle();
+    }
+  }, [navigateValue]);
 
   const onLoad = React.useCallback(function callback(map) {
     // This is just an example of getting and using the map instance!!! don't just blindly copy!
@@ -73,50 +93,68 @@ export const GoogleMapFirst = () => {
     setMap(null);
   }, []);
 
-  const onClickGetGeocode = (e) => {
-    const geocoder = new window.google.maps.Geocoder();
-
-    geocoder.geocode({ location: e.latLng }, (geo, s) => {
-      if (s === "OK") {
-        /*setClickMarker(
-          geo.map((item) => {
-            return {
-              latLng: item.geometry.location,
-              placeId: item.place_id,
-            };
-          })
-        );*/
-
-        const placesService = new window.google.maps.places.PlacesService(map);
-
-        placesService.getDetails(
-          {
-            placeId: geo[0].place_id,
-            fields: ["name", "rating", "photo"],
-          },
-          (es, st) => {
-            setInfoBox({ ...es, latLng: e.latLng, placeId: geo[0].place_id });
-            setSaveType("");
-            map.panTo(e.latLng);
-          }
-        );
-      }
-    });
+  const navigationGoogle = () => {
+    let directionsService = new window.google.maps.DirectionsService();
+    let directionsRenderer = new window.google.maps.DirectionsRenderer();
+    if (navigateValue.travelMode) {
+      directionsService.route(navigateValue, (res, status) => {
+        if (status === window.google.maps.DirectionsStatus.OK) {
+          setNavigateInfo(res);
+          setDirectionsDisplay(directionsRenderer);
+          directionsRenderer.setDirections(res);
+          directionsRenderer.setMap(map);
+        }
+      });
+    }
   };
 
-  const onClickSearch = (item) => {
+  const onClickGetGeocode = (e) => {
+    setNavigateValue({
+      origin: {},
+      destination: {},
+      travelMode: "",
+      optimizeWaypoints: false,
+    });
+    setNavigateInfo({});
+    if (directionsDisplay) {
+      directionsDisplay.setMap(null);
+      setDirectionsDisplay(null);
+    }
+
+    const directionsRenderer = new window.google.maps.DirectionsRenderer();
+    const geocoder = new window.google.maps.Geocoder();
     const placesService = new window.google.maps.places.PlacesService(map);
 
-    map.panTo(item.latLng);
-    placesService.getDetails(
-      {
-        placeId: item.placeId,
-        fields: ["name", "rating", "photo"],
-      },
-      (e, s) => {
-        setInfoBox({ ...e, ...item });
-      }
-    );
+    if (e.place_id) {
+      placesService.getDetails(
+        {
+          placeId: e.place_id,
+          fields: ["name", "rating", "photo"],
+        },
+        (es, st) => {
+          console.log(es);
+          setInfoBox({ ...es, latLng: e.latLng, placeId: e.place_id });
+          setSaveType("");
+          map.panTo(e.latLng);
+        }
+      );
+    } else {
+      geocoder.geocode({ location: e.latLng }, (geo, s) => {
+        if (s === "OK") {
+          placesService.getDetails(
+            {
+              placeId: geo[0].place_id,
+              fields: ["name", "rating", "photo"],
+            },
+            (es, st) => {
+              setInfoBox({ ...es, latLng: e.latLng, placeId: geo[0].place_id });
+              setSaveType("");
+              map.panTo(e.latLng);
+            }
+          );
+        }
+      });
+    }
   };
 
   const onSettingChange = (e) => {
@@ -127,11 +165,11 @@ export const GoogleMapFirst = () => {
     });
   };
 
-  console.log(plannerValue);
-
   const nowItem = () => {
     return plannerValue.find((item) => item.day === dayTapIndex);
   };
+
+  console.log(navigateInfo);
 
   return (
     <div style={{ overflowX: "hidden" }}>
@@ -143,12 +181,12 @@ export const GoogleMapFirst = () => {
           onLoad={onLoad}
           onUnmount={onUnmount}
           onClick={onClickGetGeocode}
+          clickableIcons={true}
           options={{
             mapTypeControl: false,
             fullscreenControl: false,
             streetViewControl: false,
           }}
-          clickableIcons={false}
         >
           {infoBox.latLng && (
             <MarkerF
@@ -159,12 +197,11 @@ export const GoogleMapFirst = () => {
               }}
             />
           )}
-          >
         </GoogleMap>
       )}
       <div
         style={{
-          zIndex: 100,
+          zIndex: 3,
           position: "absolute",
           top: 0,
           left: 0,
@@ -222,34 +259,84 @@ export const GoogleMapFirst = () => {
                 {infoBox.rating && <Rating initialValue={infoBox.rating} />}
               </div>
             </div>
-            <div
-              style={{
-                marginLeft: "10px",
-                border: "1px solid red",
-              }}
-            >
-              <label></label>
-              <select
-                style={{ width: "150px" }}
-                value={saveType}
-                onChange={(e) => {
-                  setSaveType(e.target.value);
+            {clickIndex !== -1 && (
+              <div
+                style={{
+                  marginLeft: "10px",
+                  border: "1px solid red",
                 }}
               >
-                <option value={""}>선택해주세요.</option>
-                <option value={"MAIN"}>메인 장소</option>
-                <option value={"SUB"}>서브 장소</option>
-              </select>
-              <button onClick={() => {}} style={{ marginLeft: "10px" }}>
-                등록
-              </button>
-            </div>
+                <select
+                  style={{ width: "150px" }}
+                  value={saveType}
+                  onChange={(e) => {
+                    setSaveType(e.target.value);
+                  }}
+                >
+                  <option value={""}>선택해주세요.</option>
+                  <option value={"MAIN"}>메인 장소</option>
+                  <option value={"SUB"}>서브 장소</option>
+                </select>
+                <button
+                  onClick={() => {
+                    if (saveType === "MAIN") {
+                      setPlannerValue(
+                        plannerValue.map((item) => {
+                          return item.day === dayTapIndex
+                            ? {
+                                ...item,
+                                planner: item.planner.map((items, index) => {
+                                  return index === clickIndex
+                                    ? {
+                                        ...items,
+                                        latLng: {
+                                          lat: infoBox.latLng.lat(),
+                                          lng: infoBox.latLng.lng(),
+                                        },
+                                        placeId: infoBox.placeId
+                                          ? infoBox.placeId
+                                          : "",
+                                        name: infoBox.name ? infoBox.name : "",
+                                        photos: infoBox.photos
+                                          ? infoBox.photos.map((itemss) => {
+                                              return itemss.getUrl();
+                                            })
+                                          : [],
+                                      }
+                                    : items;
+                                }),
+                              }
+                            : item;
+                        })
+                      );
+                    } else {
+                      alert("선택해주세요");
+                    }
+                  }}
+                  style={{ marginLeft: "10px" }}
+                >
+                  등록
+                </button>
+              </div>
+            )}
           </>
         )}
+
+        {navigateInfo.routes &&
+          navigateInfo.routes.map((item) => (
+            <>
+              <div>
+                {item.legs[0].distance.text +
+                  " (" +
+                  item.legs[0].duration.text +
+                  ")"}
+              </div>
+            </>
+          ))}
       </div>
       <div
         style={{
-          zIndex: 150,
+          zIndex: 5,
           position: "absolute",
           left: "70%",
           top: 0,
@@ -346,7 +433,7 @@ export const GoogleMapFirst = () => {
                           return {
                             startTime: "",
                             day: index + 1,
-                            planner: [addValueInterface],
+                            planner: [{ ...addValueInterface, sort: 0 }],
                             navigation: [],
                           };
                         })
@@ -394,7 +481,10 @@ export const GoogleMapFirst = () => {
                       cursor: "pointer",
                     }}
                     onClick={() => {
-                      setDayTapIndex(item.day);
+                      if (item.day !== dayTapIndex) {
+                        setDayTapIndex(item.day);
+                        setClickIndex(-1);
+                      }
                     }}
                   >
                     {item.day} 일
@@ -441,7 +531,7 @@ export const GoogleMapFirst = () => {
                                 clickIndex === index ? "#DCEBFF" : "white",
                             }}
                             onClick={() => {
-                              setClickIndex(index);
+                              setClickIndex(index === clickIndex ? -1 : index);
                             }}
                           >
                             {item.name}
@@ -457,6 +547,25 @@ export const GoogleMapFirst = () => {
                                 width: "150px",
                                 border: "1px solid black",
                               }}
+                              onClick={() => {
+                                const startPlace = item;
+                                const endPlace = nowItem().planner.find(
+                                  (itemss, navIndex) => navIndex === index + 1
+                                );
+
+                                console.log(startPlace, endPlace);
+
+                                if (startPlace.name && endPlace.name) {
+                                  setInfoBox({});
+                                  setNavigateValue({
+                                    origin: startPlace.latLng,
+                                    destination: endPlace.latLng,
+                                    travelMode: "DRIVING",
+                                  });
+                                } else {
+                                  alert("이름을 확인해 주세요.");
+                                }
+                              }}
                             ></div>
                           )}
                           {index === nowItem().planner.length - 1 && (
@@ -464,21 +573,22 @@ export const GoogleMapFirst = () => {
                               onClick={() => {
                                 setPlannerValue(
                                   plannerValue.map((valueItem, indexs) => {
-                                    console.log(
-                                      valueItem.day === dayTapIndex
-                                        ? valueItem
-                                        : []
-                                    );
                                     return valueItem.day === dayTapIndex
                                       ? {
                                           ...valueItem,
                                           planner: [
                                             ...valueItem.planner,
-                                            addValueInterface,
+                                            {
+                                              ...addValueInterface,
+                                              sort: valueItem.planner.length,
+                                            },
                                           ],
                                           navigation: [
                                             ...valueItem.navigation,
-                                            addLoadInterface,
+                                            {
+                                              ...addLoadInterface,
+                                              sort: valueItem.navigation.length,
+                                            },
                                           ],
                                         }
                                       : valueItem;
